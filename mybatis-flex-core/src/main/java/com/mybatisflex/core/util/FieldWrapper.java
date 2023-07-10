@@ -15,6 +15,8 @@
  */
 package com.mybatisflex.core.util;
 
+import org.apache.ibatis.reflection.Reflector;
+
 import java.lang.reflect.*;
 import java.util.Collection;
 import java.util.Map;
@@ -26,6 +28,7 @@ public class FieldWrapper {
 
     private Class<?> fieldType;
     private Class<?> mappingType;
+    private Method getterMethod;
     private Method setterMethod;
 
     public static FieldWrapper of(Class<?> clazz, String fieldName) {
@@ -49,10 +52,11 @@ public class FieldWrapper {
                         throw new IllegalStateException("Can not find field \"" + fieldName + "\" in class: " + clazz);
                     }
 
+                    String setterName = "set" + StringUtil.firstCharToUpperCase(fieldName);
                     Method setter = ClassUtil.getFirstMethod(clazz, method ->
                             method.getParameterCount() == 1
                                     && Modifier.isPublic(method.getModifiers())
-                                    && method.getName().equals("set" + StringUtil.firstCharToUpperCase(fieldName)));
+                                    && method.getName().equals(setterName));
 
                     if (setter == null) {
                         throw new IllegalStateException("Can not find method \"set" + StringUtil.firstCharToUpperCase(fieldName) + "\" in class: " + clazz);
@@ -60,8 +64,13 @@ public class FieldWrapper {
 
                     fieldWrapper = new FieldWrapper();
                     fieldWrapper.fieldType = findField.getType();
-                    fieldWrapper.mappingType = parseMappingType(findField);
+                    fieldWrapper.mappingType = parseMappingType(clazz, findField);
                     fieldWrapper.setterMethod = setter;
+
+                    String[] getterNames = new String[]{"get" + StringUtil.firstCharToUpperCase(fieldName), "is" + StringUtil.firstCharToUpperCase(fieldName)};
+                    fieldWrapper.getterMethod = ClassUtil.getFirstMethod(clazz, method -> method.getParameterCount() == 0
+                            && Modifier.isPublic(method.getModifiers())
+                            && ArrayUtil.contains(getterNames, method.getName()));
 
                     wrapperMap.put(fieldName, fieldWrapper);
                 }
@@ -71,18 +80,16 @@ public class FieldWrapper {
         return fieldWrapper;
     }
 
-    private static Class<?> parseMappingType(Field field) {
-        Class<?> fieldType = field.getType();
+    private static Class<?> parseMappingType(Class<?> clazz, Field field) {
+        Reflector reflector = Reflectors.of(clazz);
+        Class<?> fieldType = reflector.getGetterType(field.getName());
+
         if (Collection.class.isAssignableFrom(fieldType)) {
             Type genericType = field.getGenericType();
             if (genericType instanceof ParameterizedType) {
                 Type actualTypeArgument = ((ParameterizedType) genericType).getActualTypeArguments()[0];
                 return (Class<?>) actualTypeArgument;
             }
-        }
-
-        if (fieldType.isArray()) {
-            return field.getType().getComponentType();
         }
 
         return fieldType;
@@ -92,6 +99,14 @@ public class FieldWrapper {
     public void set(Object value, Object to) {
         try {
             setterMethod.invoke(to, value);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public Object get(Object target) {
+        try {
+            return getterMethod.invoke(target);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

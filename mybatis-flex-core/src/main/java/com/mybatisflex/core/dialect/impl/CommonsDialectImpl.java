@@ -28,6 +28,7 @@ import com.mybatisflex.core.table.TableInfoFactory;
 import com.mybatisflex.core.update.RawValue;
 import com.mybatisflex.core.util.ArrayUtil;
 import com.mybatisflex.core.util.CollectionUtil;
+import com.mybatisflex.core.util.SqlUtil;
 import com.mybatisflex.core.util.StringUtil;
 
 import java.math.BigDecimal;
@@ -113,7 +114,7 @@ public class CommonsDialectImpl implements IDialect {
         }
 
         for (int i = 0; i < rows.size(); i++) {
-            questions.append(buildQuestion(attrs.size()));
+            questions.append(SqlUtil.buildSqlParamPlaceholder(attrs.size()));
             if (i != rows.size() - 1) {
                 questions.append(DELIMITER);
             }
@@ -585,22 +586,19 @@ public class CommonsDialectImpl implements IDialect {
     public String forDeleteEntityById(TableInfo tableInfo) {
         String logicDeleteColumn = tableInfo.getLogicDeleteColumnOrSkip();
         Object[] tenantIdArgs = tableInfo.buildTenantIdArgs();
+
         //正常删除
         if (StringUtil.isBlank(logicDeleteColumn)) {
-            String deleteByIdSql = forDeleteById(tableInfo.getSchema(), tableInfo.getTableName(), tableInfo.getPrimaryKeys());
-
-            if (ArrayUtil.isNotEmpty(tenantIdArgs)) {
-                deleteByIdSql += AND + wrap(tableInfo.getTenantIdColumn()) + IN + buildQuestion(tenantIdArgs.length);
-            }
-            return deleteByIdSql;
+            String deleteByIdSql = forDeleteById(tableInfo.getSchema(), tableInfo.getTableName(), tableInfo.getPrimaryColumns());
+            return tableInfo.buildTenantCondition(deleteByIdSql, tenantIdArgs, this);
         }
 
         //逻辑删除
         StringBuilder sql = new StringBuilder();
-        String[] primaryKeys = tableInfo.getPrimaryKeys();
+        String[] primaryKeys = tableInfo.getPrimaryColumns();
 
         sql.append(UPDATE).append(tableInfo.getWrapSchemaAndTableName(this));
-        sql.append(SET).append(buildLogicDeletedSet(logicDeleteColumn));
+        sql.append(SET).append(buildLogicDeletedSet(logicDeleteColumn, tableInfo));
         sql.append(WHERE);
         for (int i = 0; i < primaryKeys.length; i++) {
             if (i > 0) {
@@ -609,13 +607,10 @@ public class CommonsDialectImpl implements IDialect {
             sql.append(wrap(primaryKeys[i])).append(EQUALS_PLACEHOLDER);
         }
 
-        sql.append(AND).append(buildLogicNormalCondition(logicDeleteColumn));
+        sql.append(AND).append(buildLogicNormalCondition(logicDeleteColumn, tableInfo));
 
         //租户ID
-        if (ArrayUtil.isNotEmpty(tenantIdArgs)) {
-            sql.append(AND).append(wrap(tableInfo.getTenantIdColumn())).append(IN).append(buildQuestion(tenantIdArgs.length));
-        }
-
+        tableInfo.buildTenantCondition(sql, tenantIdArgs, this);
         return sql.toString();
     }
 
@@ -627,12 +622,12 @@ public class CommonsDialectImpl implements IDialect {
 
         //正常删除
         if (StringUtil.isBlank(logicDeleteColumn)) {
-            String deleteSQL = forDeleteBatchByIds(tableInfo.getSchema(), tableInfo.getTableName(), tableInfo.getPrimaryKeys(), primaryValues);
+            String deleteSQL = forDeleteBatchByIds(tableInfo.getSchema(), tableInfo.getTableName(), tableInfo.getPrimaryColumns(), primaryValues);
 
             //多租户
             if (ArrayUtil.isNotEmpty(tenantIdArgs)) {
                 deleteSQL = deleteSQL.replace(WHERE, WHERE + BRACKET_LEFT) + BRACKET_RIGHT;
-                deleteSQL += AND + wrap(tableInfo.getTenantIdColumn()) + IN + buildQuestion(tenantIdArgs.length);
+                deleteSQL = tableInfo.buildTenantCondition(deleteSQL, tenantIdArgs, this);
             }
             return deleteSQL;
         }
@@ -640,11 +635,11 @@ public class CommonsDialectImpl implements IDialect {
         StringBuilder sql = new StringBuilder();
         sql.append(UPDATE);
         sql.append(tableInfo.getWrapSchemaAndTableName(this));
-        sql.append(SET).append(buildLogicDeletedSet(logicDeleteColumn));
+        sql.append(SET).append(buildLogicDeletedSet(logicDeleteColumn, tableInfo));
         sql.append(WHERE);
         sql.append(BRACKET_LEFT);
 
-        String[] primaryKeys = tableInfo.getPrimaryKeys();
+        String[] primaryKeys = tableInfo.getPrimaryColumns();
 
         //多主键的场景
         if (primaryKeys.length > 1) {
@@ -672,11 +667,9 @@ public class CommonsDialectImpl implements IDialect {
             }
         }
 
-        sql.append(BRACKET_RIGHT).append(AND).append(buildLogicNormalCondition(logicDeleteColumn));
+        sql.append(BRACKET_RIGHT).append(AND).append(buildLogicNormalCondition(logicDeleteColumn, tableInfo));
 
-        if (ArrayUtil.isNotEmpty(tenantIdArgs)) {
-            sql.append(AND).append(wrap(tableInfo.getTenantIdColumn())).append(IN).append(buildQuestion(tenantIdArgs.length));
-        }
+        tableInfo.buildTenantCondition(sql, tenantIdArgs, this);
 
         return sql.toString();
     }
@@ -700,7 +693,7 @@ public class CommonsDialectImpl implements IDialect {
         //ignore selectColumns
         StringBuilder sqlBuilder = new StringBuilder(UPDATE).append(forHint(CPI.getHint(queryWrapper)));
         sqlBuilder.append(tableInfo.getWrapSchemaAndTableName(this));
-        sqlBuilder.append(SET).append(buildLogicDeletedSet(logicDeleteColumn));
+        sqlBuilder.append(SET).append(buildLogicDeletedSet(logicDeleteColumn, tableInfo));
 
 
         buildJoinSql(sqlBuilder, queryWrapper, allTables);
@@ -722,7 +715,7 @@ public class CommonsDialectImpl implements IDialect {
 
         Set<String> updateColumns = tableInfo.obtainUpdateColumns(entity, ignoreNulls, false);
         Map<String, RawValue> rawValueMap = tableInfo.obtainUpdateRawValueMap(entity);
-        String[] primaryKeys = tableInfo.getPrimaryKeys();
+        String[] primaryKeys = tableInfo.getPrimaryColumns();
 
         sql.append(UPDATE).append(tableInfo.getWrapSchemaAndTableName(this)).append(SET);
 
@@ -760,19 +753,13 @@ public class CommonsDialectImpl implements IDialect {
         //逻辑删除条件，已删除的数据不能被修改
         String logicDeleteColumn = tableInfo.getLogicDeleteColumnOrSkip();
         if (StringUtil.isNotBlank(logicDeleteColumn)) {
-            sql.append(AND).append(buildLogicNormalCondition(logicDeleteColumn));
+            sql.append(AND).append(buildLogicNormalCondition(logicDeleteColumn, tableInfo));
         }
 
 
         //租户ID字段
         Object[] tenantIdArgs = tableInfo.buildTenantIdArgs();
-        if (ArrayUtil.isNotEmpty(tenantIdArgs)) {
-            if (tenantIdArgs.length == 1) {
-                sql.append(AND).append(wrap(tableInfo.getTenantIdColumn())).append(EQUALS_PLACEHOLDER);
-            } else {
-                sql.append(AND).append(wrap(tableInfo.getTenantIdColumn())).append(IN).append(buildQuestion(tenantIdArgs.length));
-            }
-        }
+        tableInfo.buildTenantCondition(sql, tenantIdArgs, this);
 
         //乐观锁条件
         if (StringUtil.isNotBlank(versionColumn)) {
@@ -907,7 +894,7 @@ public class CommonsDialectImpl implements IDialect {
         buildSelectColumnSql(sql, null, null, null);
         sql.append(FROM).append(tableInfo.getWrapSchemaAndTableName(this));
         sql.append(WHERE);
-        String[] pKeys = tableInfo.getPrimaryKeys();
+        String[] pKeys = tableInfo.getPrimaryColumns();
         for (int i = 0; i < pKeys.length; i++) {
             if (i > 0) {
                 sql.append(AND);
@@ -918,14 +905,12 @@ public class CommonsDialectImpl implements IDialect {
         //逻辑删除的情况下，需要添加逻辑删除的条件
         String logicDeleteColumn = tableInfo.getLogicDeleteColumnOrSkip();
         if (StringUtil.isNotBlank(logicDeleteColumn)) {
-            sql.append(AND).append(buildLogicNormalCondition(logicDeleteColumn));
+            sql.append(AND).append(buildLogicNormalCondition(logicDeleteColumn, tableInfo));
         }
 
         //多租户
         Object[] tenantIdArgs = tableInfo.buildTenantIdArgs();
-        if (ArrayUtil.isNotEmpty(tenantIdArgs)) {
-            sql.append(AND).append(wrap(tableInfo.getTenantIdColumn())).append(IN).append(buildQuestion(tenantIdArgs.length));
-        }
+        tableInfo.buildTenantCondition(sql, tenantIdArgs, this);
 
         return sql.toString();
     }
@@ -937,7 +922,7 @@ public class CommonsDialectImpl implements IDialect {
         buildSelectColumnSql(sql, null, tableInfo.getDefaultQueryColumn(), null);
         sql.append(FROM).append(tableInfo.getWrapSchemaAndTableName(this));
         sql.append(WHERE);
-        String[] primaryKeys = tableInfo.getPrimaryKeys();
+        String[] primaryKeys = tableInfo.getPrimaryColumns();
 
         String logicDeleteColumn = tableInfo.getLogicDeleteColumnOrSkip();
         Object[] tenantIdArgs = tableInfo.buildTenantIdArgs();
@@ -977,12 +962,11 @@ public class CommonsDialectImpl implements IDialect {
 
 
         if (StringUtil.isNotBlank(logicDeleteColumn)) {
-            sql.append(AND).append(buildLogicNormalCondition(logicDeleteColumn));
+            sql.append(AND).append(buildLogicNormalCondition(logicDeleteColumn, tableInfo));
         }
 
-        if (ArrayUtil.isNotEmpty(tenantIdArgs)) {
-            sql.append(AND).append(wrap(tableInfo.getTenantIdColumn())).append(IN).append(buildQuestion(tenantIdArgs.length));
-        }
+        //多租户
+        tableInfo.buildTenantCondition(sql, tenantIdArgs, this);
 
         return sql.toString();
     }
@@ -1071,25 +1055,13 @@ public class CommonsDialectImpl implements IDialect {
     }
 
 
-    protected String buildQuestion(int count) {
-        StringBuilder sb = new StringBuilder(BRACKET_LEFT);
-        for (int i = 0; i < count; i++) {
-            sb.append(PLACEHOLDER);
-            if (i != count - 1) {
-                sb.append(DELIMITER);
-            }
-        }
-        sb.append(BRACKET_RIGHT);
-        return sb.toString();
-    }
-
-    protected String buildLogicNormalCondition(String logicColumn) {
-        return LogicDeleteManager.getProcessor().buildLogicNormalCondition(logicColumn, this);
+    protected String buildLogicNormalCondition(String logicColumn, TableInfo tableInfo) {
+        return LogicDeleteManager.getProcessor().buildLogicNormalCondition(logicColumn, tableInfo, this);
     }
 
 
-    protected String buildLogicDeletedSet(String logicColumn) {
-        return LogicDeleteManager.getProcessor().buildLogicDeletedSet(logicColumn, this);
+    protected String buildLogicDeletedSet(String logicColumn, TableInfo tableInfo) {
+        return LogicDeleteManager.getProcessor().buildLogicDeletedSet(logicColumn, tableInfo, this);
     }
 
 

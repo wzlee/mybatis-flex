@@ -24,14 +24,10 @@ export default defineConfig({
         // logo: '/assets/images/logo01.png',
         nav: [
             {text: '首页', link: '/'},
+
             {text: '帮助文档', link: '/zh/intro/what-is-mybatisflex'},
             {text: '🔥常见问题', link: '/zh/faq'},
-            // {
-            //     text: '周边', items: [
-            //         {text: '示例代码', link: 'https://gitee.com/mybatis-flex/mybatis-flex-samples'},
-            //         {text: '更新日志', link: 'https://gitee.com/mybatis-flex/mybatis-flex/releases'},
-            //     ]
-            // },
+            {text: '周边', link: '/zh/awesome-things'},
             {
                 text: '获取源码', items: [
                     {text: 'Gitee', link: 'https://gitee.com/mybatis-flex/mybatis-flex'},
@@ -61,8 +57,8 @@ export default defineConfig({
                 text: '基础功能',
                 items: [
                     {text: '增、删、改', link: '/zh/base/add-delete-update'},
-                    {text: '查询（多表和分页）', link: '/zh/base/query'},
-                    {text: '一对多、多对一', link: '/zh/base/field-query'},
+                    {text: '基础查询', link: '/zh/base/query'},
+                    {text: '关联查询', link: '/zh/base/relations-query'},
                     {text: '批量操作', link: '/zh/base/batch'},
                     {text: 'QueryWrapper', link: '/zh/base/querywrapper'},
                     {text: 'Db + Row', link: '/zh/base/db-row'},
@@ -123,7 +119,7 @@ export default defineConfig({
       (function() {
         var hm = document.createElement("script");
         hm.src = "https://hm.baidu.com/hm.js?3f50d5fbe3bf955411748b5616b24a24";
-        var s = document.getElementsByTagName("script")[0]; 
+        var s = document.getElementsByTagName("script")[0];
         s.parentNode.insertBefore(hm, s);
       })();
         `

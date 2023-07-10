@@ -311,6 +311,15 @@ public class Column {
         return importClasses;
     }
 
+    public boolean isDefaultColumn() {
+        if (columnConfig == null) {
+            return true;
+        }
+        boolean isLarge = columnConfig.getLarge() != null && columnConfig.getLarge();
+        boolean isLogicDelete = columnConfig.getLogicDelete() != null && columnConfig.getLogicDelete();
+        return !isLarge && !isLogicDelete;
+    }
+
     @Override
     public String toString() {
         return "Column{" +
